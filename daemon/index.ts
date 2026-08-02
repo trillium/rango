@@ -49,11 +49,11 @@ async function runSingleton(standalone: boolean) {
 	if (!standalone) {
 		// We were spawned directly by the browser as the native-messaging host;
 		// our own stdio *is* the extension connection.
-		process.stdin.on("data", (chunk: Buffer) => {
-			bridge.handleIncomingBytes(chunk);
-		});
 		const stdinToken = bridge.attach((chunk) => {
 			process.stdout.write(chunk);
+		});
+		process.stdin.on("data", (chunk: Buffer) => {
+			bridge.handleIncomingBytes(stdinToken, chunk);
 		});
 		process.stdin.on("close", () => {
 			bridge.detach(stdinToken);

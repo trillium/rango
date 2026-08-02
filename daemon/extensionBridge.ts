@@ -17,13 +17,16 @@ type Writer = (chunk: Uint8Array) => void;
  * transparent to this class; both speak the same length-prefixed JSON frames.
  */
 export class ExtensionBridge {
-	private writer: Writer | undefined;
-	// Identifies which `attach()` call installed the current writer, so a
-	// stale connection's `detach()` (e.g. a superseded relay connection
-	// closing after a newer one has already attached) can't clobber a
-	// newer connection's state.
-	private writerToken: symbol | undefined;
-	private readonly decoder = new FrameDecoder();
+	// More than one connection can be attached briefly at once (e.g. a relay
+	// connection overlapping with the singleton's own stdio during a
+	// reconnect). Each gets its own frame decoder, keyed by the token
+	// `attach()` returned, so a partial frame from one stream can never mix
+	// with bytes from another. The most-recently-attached still-live
+	// connection is "the" extension for outgoing sends; when it detaches, the
+	// next most-recent survivor takes over automatically since it's just
+	// whatever token sorts last in the map's insertion order.
+	private readonly writers = new Map<symbol, Writer>();
+	private readonly decoders = new Map<symbol, FrameDecoder>();
 	private readonly pending: PendingRequests;
 
 	constructor(timeoutMs: number) {
@@ -31,29 +34,37 @@ export class ExtensionBridge {
 	}
 
 	get connected(): boolean {
-		return this.writer !== undefined;
+		return this.writers.size > 0;
 	}
 
 	attach(writer: Writer): symbol {
 		const token = Symbol("extension-connection");
-		this.writer = writer;
-		this.writerToken = token;
+		this.writers.set(token, writer);
+		this.decoders.set(token, new FrameDecoder());
 		return token;
 	}
 
 	detach(token: symbol) {
-		if (token !== this.writerToken) return;
-		this.writer = undefined;
-		this.writerToken = undefined;
-		this.pending.rejectAll("The extension disconnected.");
+		if (!this.writers.delete(token)) return;
+		this.decoders.delete(token);
+		if (this.writers.size === 0) {
+			this.pending.rejectAll("The extension disconnected.");
+		}
 	}
 
-	handleIncomingBytes(chunk: Uint8Array) {
+	handleIncomingBytes(token: symbol, chunk: Uint8Array) {
+		const decoder = this.decoders.get(token);
+		if (!decoder) return;
+
 		let messages: unknown[];
 		try {
-			messages = this.decoder.push(chunk);
+			messages = decoder.push(chunk);
 		} catch (error) {
 			console.error("rango daemon: dropping malformed frame", error);
+			// The decoder's internal buffer still holds the oversized/invalid
+			// frame; replace it so this connection isn't stuck re-throwing on
+			// every subsequent chunk.
+			this.decoders.set(token, new FrameDecoder());
 			return;
 		}
 
@@ -63,14 +74,17 @@ export class ExtensionBridge {
 	}
 
 	async send(action: CommandAction): Promise<ExtensionToDaemonResponse> {
-		if (!this.writer) {
+		let activeToken: symbol | undefined;
+		for (const token of this.writers.keys()) activeToken = token;
+		const writer = activeToken ? this.writers.get(activeToken) : undefined;
+		if (!writer) {
 			return { id: "", success: false, error: "No extension connected." };
 		}
 
 		const id = randomUUID();
 		const response = this.pending.register(id);
 		try {
-			this.writer(encodeFrame({ id, action }));
+			writer(encodeFrame({ id, action }));
 		} catch (error) {
 			this.pending.resolve({ id, success: false, error: String(error) });
 		}

@@ -14,9 +14,9 @@ function isAddrInUseError(error: unknown): boolean {
  * tests) a direct socket connection standing in for the extension leg.
  */
 export function startControlSocketServer(bridge: ExtensionBridge) {
-	// Tracks which `attach()` call each live connection owns, so its `close()`
-	// only detaches the bridge if it's still the current writer (see
-	// ExtensionBridge's writerToken).
+	// Tracks which `attach()` call each live connection owns, so its `data`/
+	// `close` handlers can route bytes to that connection's own decoder and
+	// only detach that connection's own attachment.
 	const connectionTokens = new WeakMap<Bun.Socket<unknown>, symbol>();
 
 	const listenOptions = {
@@ -28,8 +28,9 @@ export function startControlSocketServer(bridge: ExtensionBridge) {
 				});
 				connectionTokens.set(socket, token);
 			},
-			data(_socket, chunk) {
-				bridge.handleIncomingBytes(chunk);
+			data(socket, chunk) {
+				const token = connectionTokens.get(socket);
+				if (token) bridge.handleIncomingBytes(token, chunk);
 			},
 			close(socket) {
 				const token = connectionTokens.get(socket);
