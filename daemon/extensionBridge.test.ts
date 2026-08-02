@@ -42,10 +42,10 @@ describe("ExtensionBridge", () => {
 
 	test("detach rejects in-flight requests and flips connected to false", async () => {
 		const bridge = new ExtensionBridge(1000);
-		bridge.attach(() => {});
+		const token = bridge.attach(() => {});
 		const resultPromise = bridge.send({ name: "refreshHints" });
 
-		bridge.detach();
+		bridge.detach(token);
 
 		expect(bridge.connected).toBe(false);
 		const result = await resultPromise;

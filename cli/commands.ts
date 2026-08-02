@@ -20,7 +20,7 @@ export const hideHintsAction: CommandAction = {
 };
 
 export function clickHintAction(label: string): CommandAction {
-	if (!label) throw new Error("Usage: rango click <hint-label>");
+	if (!label) throw new Error("Usage: rango-cli click <hint-label>");
 
 	return {
 		name: "clickElement",

@@ -52,11 +52,11 @@ async function runSingleton(standalone: boolean) {
 		process.stdin.on("data", (chunk: Buffer) => {
 			bridge.handleIncomingBytes(chunk);
 		});
-		process.stdin.on("close", () => {
-			bridge.detach();
-		});
-		bridge.attach((chunk) => {
+		const stdinToken = bridge.attach((chunk) => {
 			process.stdout.write(chunk);
+		});
+		process.stdin.on("close", () => {
+			bridge.detach(stdinToken);
 		});
 	}
 

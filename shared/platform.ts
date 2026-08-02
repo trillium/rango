@@ -12,9 +12,10 @@ export const platform = {
 	logFile: path.join(home, "daemon.log"),
 };
 
-export const REQUEST_TIMEOUT_MS = Number(
-	process.env["RANGO_REQUEST_TIMEOUT_MS"] ?? 15_000
-);
+const parsedTimeoutMs = Number(process.env["RANGO_REQUEST_TIMEOUT_MS"]);
+export const REQUEST_TIMEOUT_MS = Number.isFinite(parsedTimeoutMs)
+	? parsedTimeoutMs
+	: 15_000;
 
 // Chrome's native messaging host protocol has an undocumented but
 // empirically-real ~1MB practical ceiling per message. Mirrors Interceptor's

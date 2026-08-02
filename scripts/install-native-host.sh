@@ -19,10 +19,18 @@ CHROME_EXTENSION_ID=""
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 	--browser)
+		[[ $# -ge 2 ]] || {
+			echo "Missing value for --browser" >&2
+			exit 1
+		}
 		BROWSER="$2"
 		shift 2
 		;;
 	--chrome-extension-id)
+		[[ $# -ge 2 ]] || {
+			echo "Missing value for --chrome-extension-id" >&2
+			exit 1
+		}
 		CHROME_EXTENSION_ID="$2"
 		shift 2
 		;;
@@ -32,6 +40,14 @@ while [[ $# -gt 0 ]]; do
 		;;
 	esac
 done
+
+case "$BROWSER" in
+chrome | firefox | all) ;;
+*)
+	echo "Invalid --browser value: $BROWSER (expected chrome, firefox, or all)" >&2
+	exit 1
+	;;
+esac
 
 DAEMON_PATH="$ROOT/daemon/index.ts"
 

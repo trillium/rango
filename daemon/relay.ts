@@ -1,6 +1,12 @@
 import { platform } from "../shared/platform";
-import { removeControlSocketFile } from "./lifecycle";
+import { checkExistingSingleton, removeControlSocketFile } from "./lifecycle";
 import type { ExtensionBridge } from "./extensionBridge";
+
+function isAddrInUseError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const code = (error as NodeJS.ErrnoException).code;
+	return code === "EADDRINUSE" || error.message.includes("EADDRINUSE");
+}
 
 /**
  * Runs in the singleton process. Accepts the one connection standing in for
@@ -8,27 +14,48 @@ import type { ExtensionBridge } from "./extensionBridge";
  * tests) a direct socket connection standing in for the extension leg.
  */
 export function startControlSocketServer(bridge: ExtensionBridge) {
-	removeControlSocketFile();
+	// Tracks which `attach()` call each live connection owns, so its `close()`
+	// only detaches the bridge if it's still the current writer (see
+	// ExtensionBridge's writerToken).
+	const connectionTokens = new WeakMap<Bun.Socket<unknown>, symbol>();
 
-	return Bun.listen({
+	const listenOptions = {
 		unix: platform.controlSocketPath,
 		socket: {
-			open(socket) {
-				bridge.attach((chunk) => {
+			open(socket: Bun.Socket<unknown>) {
+				const token = bridge.attach((chunk) => {
 					socket.write(chunk);
 				});
+				connectionTokens.set(socket, token);
 			},
 			data(_socket, chunk) {
 				bridge.handleIncomingBytes(chunk);
 			},
-			close() {
-				bridge.detach();
+			close(socket) {
+				const token = connectionTokens.get(socket);
+				if (token) bridge.detach(token);
 			},
 			error(_socket, error) {
 				console.error("rango daemon: control socket error", error);
 			},
 		},
-	});
+	} satisfies Parameters<typeof Bun.listen>[0];
+
+	try {
+		return Bun.listen(listenOptions);
+	} catch (error) {
+		if (!isAddrInUseError(error)) throw error;
+
+		// The socket file already exists and is bound. Only steal it if the
+		// process that owns it is actually dead — the PID file is advisory,
+		// but a dead PID plus a bound socket path means a previous singleton
+		// crashed without cleaning up, rather than a live one we'd be
+		// stealing the connection from.
+		if (checkExistingSingleton().alive) throw error;
+
+		removeControlSocketFile();
+		return Bun.listen(listenOptions);
+	}
 }
 
 /**

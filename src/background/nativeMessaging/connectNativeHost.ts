@@ -19,20 +19,27 @@ let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
  * transport keeps working either way.
  */
 export function connectNativeHost() {
+	let currentPort: Runtime.Port;
 	try {
-		port = browser.runtime.connectNative(nativeHostName);
+		currentPort = browser.runtime.connectNative(nativeHostName);
 	} catch (error) {
 		console.warn("Rango: native messaging unavailable.", error);
 		return;
 	}
 
-	port.onMessage.addListener(async (message: unknown) => {
+	port = currentPort;
+
+	currentPort.onMessage.addListener(async (message: unknown) => {
 		if (!isIncomingRequest(message)) return;
 		const response = await handleNativeCommand(message);
-		safePortPost(port, response);
+		safePortPost(currentPort, response);
 	});
 
-	port.onDisconnect.addListener(() => {
+	// Guards against a stale `onDisconnect` from a superseded connection
+	// clobbering a newer one's state (e.g. if `connectNativeHost` is ever
+	// called again before this listener fires).
+	currentPort.onDisconnect.addListener(() => {
+		if (port !== currentPort) return;
 		port = undefined;
 		scheduleReconnect();
 	});

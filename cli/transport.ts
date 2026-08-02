@@ -16,8 +16,9 @@ async function pingHealth(port: number): Promise<boolean> {
 }
 
 async function spawnDaemon(): Promise<void> {
+	const log = Bun.file(platform.logFile);
 	Bun.spawn(["bun", "run", daemonEntry, "--standalone"], {
-		stdio: ["ignore", "ignore", "ignore"],
+		stdio: ["ignore", log, log],
 	}).unref();
 }
 
@@ -62,5 +63,13 @@ export async function sendCommand(action: {
 		signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS + 2000),
 	});
 
-	return (await response.json()) as CommandResult;
+	try {
+		return (await response.json()) as CommandResult;
+	} catch (error) {
+		if (!response.ok) {
+			throw new Error(`Daemon returned HTTP ${response.status}.`);
+		}
+
+		throw error;
+	}
 }

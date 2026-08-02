@@ -11,6 +11,13 @@ export function encodeFrame(payload: unknown): Uint8Array {
 	return Buffer.concat([header, json]);
 }
 
+// Guards against a peer declaring a huge frame length and never completing
+// the payload, which would otherwise force the decoder to buffer unbounded
+// memory. Both the daemon's control socket (no peer authentication) and its
+// stdio use this decoder, so this is a reachable DoS surface, not just a
+// defensive nicety.
+const MAX_FRAME_SIZE = 16 * 1024 * 1024; // 16 MiB
+
 export class FrameDecoder {
 	private buffer = Buffer.alloc(0);
 
@@ -22,6 +29,12 @@ export class FrameDecoder {
 		for (;;) {
 			if (this.buffer.byteLength < 4) break;
 			const length = this.buffer.readUInt32LE(0);
+			if (length > MAX_FRAME_SIZE) {
+				throw new Error(
+					`Frame length ${length} exceeds maximum of ${MAX_FRAME_SIZE} bytes.`
+				);
+			}
+
 			if (this.buffer.byteLength < 4 + length) break;
 
 			const json = this.buffer.subarray(4, 4 + length);

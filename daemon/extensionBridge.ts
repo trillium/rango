@@ -18,6 +18,11 @@ type Writer = (chunk: Uint8Array) => void;
  */
 export class ExtensionBridge {
 	private writer: Writer | undefined;
+	// Identifies which `attach()` call installed the current writer, so a
+	// stale connection's `detach()` (e.g. a superseded relay connection
+	// closing after a newer one has already attached) can't clobber a
+	// newer connection's state.
+	private writerToken: symbol | undefined;
 	private readonly decoder = new FrameDecoder();
 	private readonly pending: PendingRequests;
 
@@ -29,17 +34,30 @@ export class ExtensionBridge {
 		return this.writer !== undefined;
 	}
 
-	attach(writer: Writer) {
+	attach(writer: Writer): symbol {
+		const token = Symbol("extension-connection");
 		this.writer = writer;
+		this.writerToken = token;
+		return token;
 	}
 
-	detach() {
+	detach(token: symbol) {
+		if (token !== this.writerToken) return;
 		this.writer = undefined;
+		this.writerToken = undefined;
 		this.pending.rejectAll("The extension disconnected.");
 	}
 
 	handleIncomingBytes(chunk: Uint8Array) {
-		for (const message of this.decoder.push(chunk)) {
+		let messages: unknown[];
+		try {
+			messages = this.decoder.push(chunk);
+		} catch (error) {
+			console.error("rango daemon: dropping malformed frame", error);
+			return;
+		}
+
+		for (const message of messages) {
 			if (isExtensionResponse(message)) this.pending.resolve(message);
 		}
 	}
@@ -51,7 +69,12 @@ export class ExtensionBridge {
 
 		const id = randomUUID();
 		const response = this.pending.register(id);
-		this.writer(encodeFrame({ id, action }));
+		try {
+			this.writer(encodeFrame({ id, action }));
+		} catch (error) {
+			this.pending.resolve({ id, success: false, error: String(error) });
+		}
+
 		return response;
 	}
 }
