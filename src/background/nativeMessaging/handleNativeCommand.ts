@@ -2,12 +2,12 @@ import type { ActionMap } from "../../typings/Action";
 import { handleCommand } from "../commands/commandHandler";
 import { UnreachableContentScriptError } from "../messaging/UnreachableContentScriptError";
 
-export type IncomingRequest = {
+type IncomingRequest = {
 	id: string;
 	action: { [key: string]: unknown; name: string };
 };
 
-export type OutgoingResponse =
+type OutgoingResponse =
 	| { id: string; success: true; data?: unknown }
 	| { id: string; success: false; error: string };
 

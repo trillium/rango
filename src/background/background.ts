@@ -53,7 +53,7 @@ if (process.env["NODE_ENV"] === "test") {
 // Safari uses a different native-messaging API (NSExtensionRequest, not the
 // stdio host protocol Chrome/Firefox use), so the CLI daemon bridge is
 // Chrome/Firefox only for now.
-if (process.env.NODE_ENV !== "test" && !isSafari()) {
+if (process.env["NODE_ENV"] !== "test" && !isSafari()) {
 	connectNativeHost();
 }
 
