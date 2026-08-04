@@ -3,6 +3,7 @@
 	"parserOptions": {
 		"project": "./tsconfig.xo.json"
 	},
+	"ignores": ["daemon/**", "cli/**", "shared/**"],
 	"envs": ["browser"],
 	"prettier": "true",
 	"globals": {
